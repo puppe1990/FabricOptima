@@ -376,65 +376,80 @@ export default function AutoNesting({ onLog }: AutoNestingProps) {
       setIsNesting(true)
       setCurrentStep(1)
 
-      // Criar instância do algoritmo
-      const algorithm = new NestingAlgorithm(
-        fabricWidth * 1000, // Converter para milímetros
-        pltData.segments,
-        addLog
+      // Criar Worker
+      const worker = new Worker(
+        new URL('../workers/nesting.worker.ts', import.meta.url)
       )
 
-      // Executar encaixe
-      const result = await algorithm.performNesting()
+      // Configurar handlers do worker
+      worker.onmessage = (e) => {
+        const { type, data } = e.data
 
-      // Atualizar canvas com resultado
-      const canvas = document.createElement('canvas')
-      canvas.width = 1000
-      canvas.height = 800
-      const ctx = canvas.getContext('2d')
+        switch (type) {
+          case "log":
+            addLog(data.message, data.type)
+            break
 
-      if (ctx) {
-        // Desenhar resultado
-        ctx.fillStyle = '#fff'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
+          case "result":
+            // Atualizar canvas com resultado
+            const canvas = document.createElement('canvas')
+            canvas.width = 1000
+            canvas.height = 800
+            const ctx = canvas.getContext('2d')
 
-        // Escalar para caber no canvas
-        const scale = Math.min(
-          canvas.width / result.bounds.width,
-          canvas.height / result.bounds.height
-        )
+            if (ctx) {
+              ctx.fillStyle = '#fff'
+              ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-        result.pieces.forEach(piece => {
-          ctx.beginPath()
-          piece.points.forEach((point, i) => {
-            const x = (point.x + piece.position.x) * scale
-            const y = (point.y + piece.position.y) * scale
-            if (i === 0) ctx.moveTo(x, y)
-            else ctx.lineTo(x, y)
-          })
-          ctx.closePath()
-          
-          // Cor baseada no tipo da peça
-          ctx.fillStyle = piece.type === "large" ? '#f97316' : '#22c55e'
-          ctx.fill()
-          ctx.strokeStyle = '#000'
-          ctx.stroke()
-        })
+              const scale = Math.min(
+                canvas.width / data.bounds.width,
+                canvas.height / data.bounds.height
+              )
+
+              data.pieces.forEach(piece => {
+                ctx.beginPath()
+                piece.points.forEach((point, i) => {
+                  const x = (point.x + piece.position.x) * scale
+                  const y = (point.y + piece.position.y) * scale
+                  if (i === 0) ctx.moveTo(x, y)
+                  else ctx.lineTo(x, y)
+                })
+                ctx.closePath()
+                
+                ctx.fillStyle = piece.type === "large" ? '#f97316' : '#22c55e'
+                ctx.fill()
+                ctx.strokeStyle = '#000'
+                ctx.stroke()
+              })
+            }
+
+            setNestingCanvas(canvas)
+            setNestingResult({
+              efficiency: data.efficiency,
+              fabricLength: data.bounds.height / 1000,
+              time: nestingTime
+            })
+
+            setIsNesting(false)
+            worker.terminate()
+            break
+
+          case "error":
+            addLog(`Erro durante o encaixe: ${data}`, "error")
+            setIsNesting(false)
+            worker.terminate()
+            break
+        }
       }
 
-      setNestingCanvas(canvas)
-      setNestingResult({
-        efficiency: result.efficiency,
-        fabricLength: result.bounds.height / 1000, // Converter para metros
-        time: nestingTime
+      // Iniciar o processamento
+      worker.postMessage({
+        fabricWidth: fabricWidth * 1000,
+        segments: pltData.segments
       })
-
-      addLog("=== Processo de Encaixe Concluído ===", "success")
-      addLog(`Eficiência alcançada: ${result.efficiency.toFixed(2)}%`, "success")
-      addLog(`Comprimento de tecido: ${(result.bounds.height / 1000).toFixed(2)}m`, "success")
 
     } catch (error) {
       addLog(`Erro durante o encaixe: ${error}`, "error")
-    } finally {
       setIsNesting(false)
     }
   }, [pltData, fabricWidth, nestingTime, addLog])
