@@ -31,7 +31,7 @@ export default function Home() {
 
           {/* Footer */}
           <footer className="text-center mt-10 text-slate-600 text-sm">
-            <p>FabricOptima © 2024 - Otimização inteligente para a indústria têxtil</p>
+            <p>FabricOptima © {new Date().getFullYear()} - Otimização inteligente para a indústria têxtil</p>
           </footer>
         </div>
 
