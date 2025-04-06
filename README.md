@@ -1,6 +1,7 @@
 # PLT Viewer
 
 A modern web application for viewing and interacting with PLT (plotter) files, built with Next.js and TypeScript.
+<img width="1671" alt="Screenshot 2025-04-06 at 19 38 58" src="https://github.com/user-attachments/assets/f3b6939b-70f5-4cf3-9df9-7d1b165bd122" />
 
 ## Features
 
