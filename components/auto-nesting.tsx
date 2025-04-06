@@ -27,6 +27,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import NestingProcessModal from "./nesting-process-modal"
+import jsPDF from 'jspdf'
+import { NestingAlgorithm } from "./nesting-algorithm"
 
 interface AutoNestingProps {
   onLog?: (message: string, type?: "info" | "warning" | "error" | "success") => void
@@ -267,9 +269,105 @@ export default function AutoNesting({ onLog }: AutoNestingProps) {
     })
   }, [pltData, fabricWidth])
 
+  // Adicione esta função auxiliar fora do componente
+  function formatDate(date: Date): string {
+    return date.toLocaleDateString('pt-BR') + ' ' + date.toLocaleTimeString('pt-BR')
+  }
+
+  // Função para gerar o PDF
+  const generatePDF = useCallback((result: {
+    efficiency: number
+    fabricLength: number
+    time: number
+    pieces: any[]
+  }) => {
+    const pdf = new jsPDF()
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const margin = 20
+    let y = 20
+
+    // Cabeçalho
+    pdf.setFontSize(20)
+    pdf.text('FabricOptima - Relatório de Encaixe', pageWidth / 2, y, { align: 'center' })
+    
+    y += 20
+    pdf.setFontSize(12)
+    pdf.text(`Data: ${formatDate(new Date())}`, margin, y)
+    
+    // Informações do Tecido
+    y += 15
+    pdf.setFontSize(14)
+    pdf.text('Configurações do Tecido', margin, y)
+    
+    y += 10
+    pdf.setFontSize(12)
+    pdf.text([
+      `Tipo: ${fabricType.name}`,
+      `Largura: ${fabricWidth}m`,
+      `Sentido: ${fabricType.direction === 'double' ? 'Duplo' : 'Único'}`,
+    ], margin, y)
+
+    // Resultados
+    y += 25
+    pdf.setFontSize(14)
+    pdf.text('Resultados do Encaixe', margin, y)
+    
+    y += 10
+    pdf.setFontSize(12)
+    pdf.text([
+      `Eficiência: ${result.efficiency}%`,
+      `Comprimento de tecido: ${result.fabricLength}m`,
+      `Área total: ${(fabricWidth * result.fabricLength).toFixed(2)}m²`,
+      `Tempo de processamento: ${result.time} minutos`,
+    ], margin, y)
+
+    // Peças Processadas
+    y += 25
+    pdf.setFontSize(14)
+    pdf.text('Peças Processadas', margin, y)
+    
+    y += 10
+    pdf.setFontSize(12)
+    const largePieces = pieces.filter(p => p.size === 'large')
+    const smallPieces = pieces.filter(p => p.size === 'small')
+
+    pdf.text(`Peças Grandes (${largePieces.length})`, margin, y)
+    y += 5
+    largePieces.forEach(piece => {
+      y += 5
+      pdf.text(`- ${piece.name}`, margin + 5, y)
+    })
+
+    y += 10
+    pdf.text(`Peças Pequenas (${smallPieces.length})`, margin, y)
+    y += 5
+    smallPieces.forEach(piece => {
+      y += 5
+      pdf.text(`- ${piece.name}`, margin + 5, y)
+    })
+
+    // Adicionar imagem do encaixe se disponível
+    if (nestingCanvas) {
+      y += 20
+      pdf.text('Visualização do Encaixe', margin, y)
+      y += 10
+      
+      const imgData = nestingCanvas.toDataURL('image/png')
+      const imgWidth = pageWidth - (margin * 2)
+      const imgHeight = (nestingCanvas.height * imgWidth) / nestingCanvas.width
+      
+      pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight)
+    }
+
+    // Salvar o PDF
+    const fileName = `encaixe-${formatDate(new Date()).replace(/[/: ]/g, '-')}.pdf`
+    pdf.save(fileName)
+    addLog(`PDF gerado com sucesso: ${fileName}`, "success")
+  }, [fabricType, fabricWidth, pieces, nestingCanvas, addLog])
+
   // Agora definir startNesting
   const startNesting = useCallback(async () => {
-    if (!pltData) {
+    if (!pltData || !pltData.segments) {
       addLog("Nenhum arquivo PLT carregado", "error")
       return
     }
@@ -278,75 +376,68 @@ export default function AutoNesting({ onLog }: AutoNestingProps) {
       setIsNesting(true)
       setCurrentStep(1)
 
-      addLog("=== Iniciando Processo de Encaixe Automático ===", "info")
-      addLog("Configurações:", "info")
-      addLog(`- Largura do tecido: ${fabricWidth}m`, "info")
-      addLog(`- Tipo de tecido: ${fabricType.name}`, "info")
-      addLog(`- Sentido: ${fabricType.direction === "double" ? "Duplo" : "Único"}`, "info")
-      addLog(`- Tamanhos selecionados: ${selectedSizes.join(", ")}`, "info")
-      addLog(`- Tempo definido: ${nestingTime} minutos`, "info")
-      addLog(`- Eficiência alvo: ${targetEfficiency}%`, "info")
-      addLog(`- Manter peças encaixadas: ${keepNestedPieces ? "Sim" : "Não"}`, "info")
-      addLog("---", "info")
+      // Criar instância do algoritmo
+      const algorithm = new NestingAlgorithm(
+        fabricWidth * 1000, // Converter para milímetros
+        pltData.segments,
+        addLog
+      )
 
-      // Criar canvas para visualização do encaixe
+      // Executar encaixe
+      const result = await algorithm.performNesting()
+
+      // Atualizar canvas com resultado
       const canvas = document.createElement('canvas')
       canvas.width = 1000
       canvas.height = 800
-      setNestingCanvas(canvas)
+      const ctx = canvas.getContext('2d')
 
-      // Processar peças do PLT
-      const pieces = pltData.segments.map(segment => ({
-        ...segment,
-        isEnabled: true,
-        size: segment.points.length > 100 ? "large" : "small"
-      }))
+      if (ctx) {
+        // Desenhar resultado
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-      // Log das peças selecionadas
-      addLog(`Total de peças para encaixe: ${pieces.length}`, "info")
-      
-      // Separar peças grandes e pequenas
-      const largePieces = pieces.filter(p => p.size === "large")
-      const smallPieces = pieces.filter(p => p.size === "small")
-      
-      addLog(`- Peças grandes: ${largePieces.length}`, "info")
-      largePieces.forEach(p => addLog(`  * ${p.name}`, "info"))
-      
-      addLog(`- Peças pequenas: ${smallPieces.length}`, "info")
-      smallPieces.forEach(p => addLog(`  * ${p.name}`, "info"))
-      
-      // Simular processo em etapas
-      for (let step = 1; step <= 4; step++) {
-        setCurrentStep(step)
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        // Escalar para caber no canvas
+        const scale = Math.min(
+          canvas.width / result.bounds.width,
+          canvas.height / result.bounds.height
+        )
 
-        switch(step) {
-          case 1:
-            addLog("Etapa 1: Encaixando peças grandes...", "info")
-            break
-          case 2:
-            addLog("Etapa 2: Otimizando posições...", "info")
-            break
-          case 3:
-            addLog("Etapa 3: Encaixando peças pequenas...", "info")
-            break
-          case 4:
-            const efficiency = Math.round(Math.random() * 20 + 70) // Simulação
-            const fabricLength = Math.round(Math.random() * 3 + 2) // Simulação
-
-            addLog("=== Processo de Encaixe Concluído ===", "success")
-            addLog(`Eficiência alcançada: ${efficiency}%`, "success")
-            addLog(`Comprimento de tecido: ${fabricLength}m`, "success")
-            break
-        }
+        result.pieces.forEach(piece => {
+          ctx.beginPath()
+          piece.points.forEach((point, i) => {
+            const x = (point.x + piece.position.x) * scale
+            const y = (point.y + piece.position.y) * scale
+            if (i === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.closePath()
+          
+          // Cor baseada no tipo da peça
+          ctx.fillStyle = piece.type === "large" ? '#f97316' : '#22c55e'
+          ctx.fill()
+          ctx.strokeStyle = '#000'
+          ctx.stroke()
+        })
       }
+
+      setNestingCanvas(canvas)
+      setNestingResult({
+        efficiency: result.efficiency,
+        fabricLength: result.bounds.height / 1000, // Converter para metros
+        time: nestingTime
+      })
+
+      addLog("=== Processo de Encaixe Concluído ===", "success")
+      addLog(`Eficiência alcançada: ${result.efficiency.toFixed(2)}%`, "success")
+      addLog(`Comprimento de tecido: ${(result.bounds.height / 1000).toFixed(2)}m`, "success")
 
     } catch (error) {
       addLog(`Erro durante o encaixe: ${error}`, "error")
     } finally {
       setIsNesting(false)
     }
-  }, [pltData, fabricWidth, fabricType, selectedSizes, nestingTime, targetEfficiency, keepNestedPieces, addLog])
+  }, [pltData, fabricWidth, nestingTime, addLog])
 
   // Função para alternar visibilidade de peças
   const togglePiece = useCallback((pieceName: string) => {
