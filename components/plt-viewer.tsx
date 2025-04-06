@@ -10,20 +10,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import PltRenderer from "./plt-renderer"
 import { parsePltFile } from "./plt-parser"
+import { usePlt } from "@/contexts/plt-context"
 
 export default function PltViewer() {
+  const { pltData, addLog } = usePlt()
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [pltData, setPltData] = useState<any>(null)
   const [logs, setLogs] = useState<{ time: string; message: string; type: "info" | "warning" | "error" | "success" }[]>(
     [],
   )
   const [showLogs, setShowLogs] = useState(false)
 
   // Função para adicionar logs
-  const addLog = (message: string, type: "info" | "warning" | "error" | "success" = "info") => {
+  const addLogContext = (message: string, type: "info" | "warning" | "error" | "success" = "info") => {
     const now = new Date()
     const timeString = now.toLocaleTimeString("pt-BR", { hour12: false })
     setLogs((prev) => [...prev, { time: timeString, message, type }])
@@ -50,17 +51,17 @@ export default function PltViewer() {
     navigator.clipboard
       .writeText(logText)
       .then(() => {
-        addLog("Logs copiados para a área de transferência", "success")
+        addLogContext("Logs copiados para a área de transferência", "success")
       })
       .catch((err) => {
-        addLog(`Erro ao copiar logs: ${err}`, "error")
+        addLogContext(`Erro ao copiar logs: ${err}`, "error")
       })
   }
 
   // Limpar logs
   const clearLogs = () => {
     setLogs([])
-    addLog("Logs limpos", "info")
+    addLogContext("Logs limpos", "info")
   }
 
   // Modifique a função onDrop para garantir que o arquivo seja processado corretamente
@@ -70,7 +71,7 @@ export default function PltViewer() {
       setFile(selectedFile)
       setError(null)
       setLogs([])
-      addLog(`Arquivo selecionado: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(2)} KB)`, "info")
+      addLogContext(`Arquivo selecionado: ${selectedFile.name} (${(selectedFile.size / 1024).toFixed(2)} KB)`, "info")
 
       // Forçar um pequeno atraso para garantir que a UI seja atualizada
       setTimeout(() => {
@@ -96,7 +97,7 @@ export default function PltViewer() {
     setShowLogs(true)
 
     try {
-      addLog(`Iniciando carregamento do arquivo ${file.name}`, "info")
+      addLogContext(`Iniciando carregamento do arquivo ${file.name}`, "info")
 
       // Simular o progresso de carregamento
       const simulateProgress = () => {
@@ -122,32 +123,32 @@ export default function PltViewer() {
         const loadTime = ((performance.now() - startTime) / 1000).toFixed(2)
         clearInterval(progressInterval)
         setProgress(100)
-        addLog(`Arquivo carregado em ${loadTime}s`, "success")
+        addLogContext(`Arquivo carregado em ${loadTime}s`, "success")
 
         try {
           // Processar o conteúdo do arquivo PLT
           const content = e.target?.result as string
-          addLog(`Tamanho do conteúdo: ${content.length} caracteres`, "info")
+          addLogContext(`Tamanho do conteúdo: ${content.length} caracteres`, "info")
 
           // Analisar o conteúdo
           const lines = content.split(/[\r\n]+/)
-          addLog(`Número de linhas: ${lines.length}`, "info")
+          addLogContext(`Número de linhas: ${lines.length}`, "info")
 
           // Mostrar amostra do conteúdo
           const sampleLines = lines.slice(0, Math.min(5, lines.length))
-          addLog(`Amostra do conteúdo:`, "info")
+          addLogContext(`Amostra do conteúdo:`, "info")
           sampleLines.forEach((line, i) => {
-            addLog(`  Linha ${i + 1}: ${line.length > 100 ? line.substring(0, 100) + "..." : line}`, "info")
+            addLogContext(`  Linha ${i + 1}: ${line.length > 100 ? line.substring(0, 100) + "..." : line}`, "info")
           })
 
           // Processar o arquivo
           const parseStartTime = performance.now()
-          addLog(`Iniciando processamento do arquivo PLT...`, "info")
-          const parsedData = await parsePltFile(content, addLog)
+          addLogContext(`Iniciando processamento do arquivo PLT...`, "info")
+          const parsedData = await parsePltFile(content, addLogContext)
           const parseTime = ((performance.now() - parseStartTime) / 1000).toFixed(2)
 
           if (parsedData.points.length === 0) {
-            addLog(`Não foi possível extrair pontos do arquivo após ${parseTime}s de processamento`, "error")
+            addLogContext(`Não foi possível extrair pontos do arquivo após ${parseTime}s de processamento`, "error")
             setError("Não foi possível extrair pontos do arquivo. Verifique se é um arquivo PLT válido.")
             setLoading(false)
             return
@@ -157,20 +158,20 @@ export default function PltViewer() {
           const puCount = parsedData.commands.filter((cmd) => cmd === "PU").length
           const pdCount = parsedData.commands.filter((cmd) => cmd === "PD").length
 
-          addLog(`Processamento concluído em ${parseTime}s`, "success")
-          addLog(`Total de pontos extraídos: ${parsedData.points.length}`, "success")
-          addLog(
+          addLogContext(`Processamento concluído em ${parseTime}s`, "success")
+          addLogContext(`Total de pontos extraídos: ${parsedData.points.length}`, "success")
+          addLogContext(
             `Comandos PU (Pen Up): ${puCount} (${((puCount / parsedData.commands.length) * 100).toFixed(1)}%)`,
             "info",
           )
-          addLog(
+          addLogContext(
             `Comandos PD (Pen Down): ${pdCount} (${((pdCount / parsedData.commands.length) * 100).toFixed(1)}%)`,
             "info",
           )
 
           // Informações sobre segmentos, se houver
           if (parsedData.segments && parsedData.segments.length > 0) {
-            addLog(`Segmentos identificados: ${parsedData.segments.length}`, "success")
+            addLogContext(`Segmentos identificados: ${parsedData.segments.length}`, "success")
             parsedData.segments.forEach((segment, i) => {
               // Calcular os limites do segmento para melhor identificação
               let minX = Number.POSITIVE_INFINITY,
@@ -188,13 +189,13 @@ export default function PltViewer() {
               const width = maxX - minX
               const height = maxY - minY
 
-              addLog(
+              addLogContext(
                 `  Segmento ${i + 1}: "${segment.name}" com ${segment.points.length} pontos (${width.toFixed(0)}x${height.toFixed(0)})`,
                 "info",
               )
             })
           } else {
-            addLog("Nenhum segmento identificado no arquivo", "warning")
+            addLogContext("Nenhum segmento identificado no arquivo", "warning")
           }
 
           // Analisar os limites dos pontos
@@ -209,15 +210,15 @@ export default function PltViewer() {
             maxY = Math.max(maxY, point.y)
           })
 
-          addLog(`Limites dos pontos: X(${minX} a ${maxX}), Y(${minY} a ${maxY})`, "info")
-          addLog(`Dimensões: ${maxX - minX} x ${maxY - minY}`, "info")
+          addLogContext(`Limites dos pontos: X(${minX} a ${maxX}), Y(${minY} a ${maxY})`, "info")
+          addLogContext(`Dimensões: ${maxX - minX} x ${maxY - minY}`, "info")
 
           setPltData(parsedData)
           setLoading(false)
-          addLog(`Pronto para renderizar`, "success")
+          addLogContext(`Pronto para renderizar`, "success")
         } catch (err) {
           console.error("Erro ao processar arquivo PLT:", err)
-          addLog(`Erro ao processar o arquivo: ${err}`, "error")
+          addLogContext(`Erro ao processar o arquivo: ${err}`, "error")
           setError("Erro ao processar o arquivo PLT. Verifique se o formato é válido.")
           setLoading(false)
         }
@@ -226,7 +227,7 @@ export default function PltViewer() {
       reader.onerror = (err) => {
         console.error("Erro ao ler arquivo:", err)
         clearInterval(progressInterval)
-        addLog(`Erro ao ler o arquivo: ${err}`, "error")
+        addLogContext(`Erro ao ler o arquivo: ${err}`, "error")
         setError("Erro ao ler o arquivo. Tente novamente.")
         setLoading(false)
       }
@@ -234,7 +235,7 @@ export default function PltViewer() {
       reader.readAsText(file)
     } catch (err) {
       console.error("Erro inesperado:", err)
-      addLog(`Erro inesperado: ${err}`, "error")
+      addLogContext(`Erro inesperado: ${err}`, "error")
       setError("Ocorreu um erro inesperado. Tente novamente.")
       setLoading(false)
     }
@@ -367,7 +368,7 @@ export default function PltViewer() {
         <Card>
           <CardContent className="pt-6">
             <h3 className="text-lg font-medium mb-4">Visualização do Arquivo PLT</h3>
-            <PltRenderer data={pltData} onLog={addLog} />
+            <PltRenderer data={pltData} onLog={addLogContext} />
           </CardContent>
         </Card>
       )}
